@@ -1,6 +1,6 @@
-use async_trait::async_trait;
-use crate::job::RizaJob;
 use crate::error::RizaResult;
+use crate::job::RizaJob;
+use async_trait::async_trait;
 
 pub struct ComposedPipe<C: Send + Sync, U: Send + Sync, V: Send + Sync, W: Send + Sync> {
     a: Box<dyn RizaJob<C, Input = U, Output = V> + Send + Sync>,

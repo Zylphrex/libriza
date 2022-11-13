@@ -1,12 +1,14 @@
 use async_trait::async_trait;
-use libriza::{compose, RizaResult, RizaError, RizaJob};
+use libriza::{
+    compose, using_browser, RizaBrowserConfig, RizaDriverConfig, RizaError, RizaJob, RizaResult,
+};
 use num::traits::CheckedAdd;
 use std::marker::PhantomData;
-use thirtyfour::prelude::*;
+use thirtyfour::By;
 
 #[tokio::main]
 async fn main() {
-    let noop = Box::new(Noop {
+    let wikipedia = Box::new(BrowserVisitor {
         config: PhantomData,
         data: PhantomData,
     });
@@ -26,64 +28,68 @@ async fn main() {
         config: PhantomData,
         by: 2,
     });
-    let workflow = compose(noop, seed);
+    let workflow = compose(wikipedia, seed);
     let workflow = compose(workflow, echo);
     let workflow = compose(workflow, inc1);
     let workflow = compose(workflow, inc2);
 
-    let config = Config {};
+    let config = Config {
+        driver_config: RizaDriverConfig {
+            server_url: "http://localhost:9515",
+            headless: true,
+        },
+    };
     let data = ();
     println!("{:?}", workflow.run(&config, &data).await);
 }
 
-struct Config {}
+struct Config<'a> {
+    driver_config: RizaDriverConfig<'a>,
+}
 
-fn f<T>(a: Result<T, WebDriverError>) -> RizaResult<T> {
-    match a {
-        Ok(a) => Ok(a),
-        Err(err) => Err(RizaError::UnknownError(format!("{:?}", err))),
+impl<'a> RizaBrowserConfig for Config<'a> {
+    fn driver_config(&self) -> &RizaDriverConfig {
+        &self.driver_config
     }
 }
 
-struct Noop<C, T> {
+struct BrowserVisitor<C, T> {
     config: PhantomData<C>,
     data: PhantomData<T>,
 }
 
 #[async_trait]
-impl<C> RizaJob<C> for Noop<C, ()>
+impl<C> RizaJob<C> for BrowserVisitor<C, ()>
 where
-    C: Send + Sync,
+    C: RizaBrowserConfig + Send + Sync,
 {
     type Input = ();
     type Output = ();
 
-    async fn run(&self, _config: &C, _input: &()) -> RizaResult<()> {
-        let mut caps = DesiredCapabilities::chrome();
-        f(caps.set_headless())?;
-        let driver = f(WebDriver::new("http://localhost:9515", caps).await)?;
+    async fn run(&self, config: &C, _input: &()) -> RizaResult<()> {
+        using_browser(config, |driver| async move {
+            // Navigate to https://wikipedia.org.
+            driver.goto("https://wikipedia.org").await?;
 
-        // Navigate to https://wikipedia.org.
-        f(driver.goto("https://wikipedia.org").await)?;
-        let elem_form = f(driver.find(By::Id("search-form")).await)?;
+            let elem_form = driver.find(By::Id("search-form")).await?;
 
-        // Find element from element.
-        let elem_text = f(elem_form.find(By::Id("searchInput")).await)?;
+            // Find element from element.
+            let elem_text = elem_form.find(By::Id("searchInput")).await?;
 
-        // Type in the search terms.
-        f(elem_text.send_keys("selenium").await)?;
+            // Type in the search terms.
+            elem_text.send_keys("selenium").await?;
 
-        // Click the search button.
-        let elem_button = f(elem_form.find(By::Css("button[type='submit']")).await)?;
-        f(elem_button.click().await)?;
+            // Click the search button.
+            let elem_button = elem_form.find(By::Css("button[type='submit']")).await?;
+            elem_button.click().await?;
 
-        // Look for header to implicitly wait for the page to load.
-        f(driver.find(By::ClassName("firstHeading")).await)?;
-        assert_eq!(f(driver.title().await)?, "Selenium - Wikipedia");
+            // Look for header to implicitly wait for the page to load.
+            driver.find(By::ClassName("firstHeading")).await?;
+            assert_eq!(driver.title().await?, "Selenium - Wikipedia");
 
-        // Always explicitly close the browser.
-        f(driver.quit().await)?;
-        Ok(())
+            Ok(())
+        })
+        .await
     }
 }
 
