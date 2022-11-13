@@ -1,37 +1,37 @@
 use async_trait::async_trait;
 use libriza::{
-    compose, using_browser, RizaBrowserConfig, RizaDriverConfig, RizaError, RizaJob, RizaResult,
+    compose, parallelize, run_workflow, using_browser, RizaBrowserConfig, RizaDriverConfig,
+    RizaError, RizaJob, RizaResult,
 };
 use num::traits::CheckedAdd;
 use std::marker::PhantomData;
-use thirtyfour::By;
 
 #[tokio::main]
 async fn main() {
-    let wikipedia = Box::new(BrowserVisitor {
+    let wikipedia_seed = Box::new(Seed {
+        config: PhantomData,
+        data: "https://wikipedia.org".to_string(),
+    });
+    let wikipedia = Box::new(BrowserTitle {
         config: PhantomData,
         data: PhantomData,
     });
-    let seed = Box::new(Seed {
+    let google_seed = Box::new(Seed {
         config: PhantomData,
-        data: 100,
+        data: "https://google.ca".to_string(),
+    });
+    let google = Box::new(BrowserTitle {
+        config: PhantomData,
+        data: PhantomData,
     });
     let echo = Box::new(Echo {
         config: PhantomData,
         data: PhantomData,
     });
-    let inc1 = Box::new(Increment {
-        config: PhantomData,
-        by: 1,
-    });
-    let inc2 = Box::new(Increment {
-        config: PhantomData,
-        by: 2,
-    });
-    let workflow = compose(wikipedia, seed);
+    let wikipedia_workflow = compose(wikipedia_seed, wikipedia);
+    let google_workflow = compose(google_seed, google);
+    let workflow = parallelize(vec![wikipedia_workflow, google_workflow]);
     let workflow = compose(workflow, echo);
-    let workflow = compose(workflow, inc1);
-    let workflow = compose(workflow, inc2);
 
     let config = Config {
         driver_config: RizaDriverConfig {
@@ -39,8 +39,8 @@ async fn main() {
             headless: true,
         },
     };
-    let data = ();
-    println!("{:?}", workflow.run(&config, &data).await);
+
+    println!("{:?}", run_workflow(workflow, config).await);
 }
 
 struct Config<'a> {
@@ -53,41 +53,23 @@ impl<'a> RizaBrowserConfig for Config<'a> {
     }
 }
 
-struct BrowserVisitor<C, T> {
+struct BrowserTitle<C, T> {
     config: PhantomData<C>,
     data: PhantomData<T>,
 }
 
 #[async_trait]
-impl<C> RizaJob<C> for BrowserVisitor<C, ()>
+impl<C> RizaJob<C> for BrowserTitle<C, ()>
 where
     C: RizaBrowserConfig + Send + Sync,
 {
-    type Input = ();
-    type Output = ();
+    type Input = String;
+    type Output = String;
 
-    async fn run(&self, config: &C, _input: &()) -> RizaResult<()> {
+    async fn run(&self, config: &C, input: &Self::Input) -> RizaResult<Self::Output> {
         using_browser(config, |driver| async move {
-            // Navigate to https://wikipedia.org.
-            driver.goto("https://wikipedia.org").await?;
-
-            let elem_form = driver.find(By::Id("search-form")).await?;
-
-            // Find element from element.
-            let elem_text = elem_form.find(By::Id("searchInput")).await?;
-
-            // Type in the search terms.
-            elem_text.send_keys("selenium").await?;
-
-            // Click the search button.
-            let elem_button = elem_form.find(By::Css("button[type='submit']")).await?;
-            elem_button.click().await?;
-
-            // Look for header to implicitly wait for the page to load.
-            driver.find(By::ClassName("firstHeading")).await?;
-            assert_eq!(driver.title().await?, "Selenium - Wikipedia");
-
-            Ok(())
+            driver.goto(&input).await?;
+            Ok(driver.title().await?)
         })
         .await
     }
