@@ -1,14 +1,13 @@
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
-}
+mod compose;
+mod error;
+mod job;
+
+pub use compose::compose;
+pub use error::{RizaError, RizaResult};
+pub use job::RizaJob;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+    fn it_works() {}
 }
