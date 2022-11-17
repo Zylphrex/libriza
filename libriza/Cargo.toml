@@ -8,7 +8,6 @@ edition = "2021"
 [dependencies]
 async-trait = "0.1.58"
 thirtyfour = { version = "0.31.0", optional = true }
-thiserror = "1.0.37"
 tokio = { version = "1.21", features = ["fs", "macros", "rt-multi-thread", "io-util", "sync"] }
 
 [features]
